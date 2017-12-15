@@ -1,0 +1,127 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML+RDFa 1.0//EN"
+  "http://www.w3.org/MarkUp/DTD/xhtml-rdfa-1.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" version="XHTML+RDFa 1.0" dir="ltr">
+
+<head profile="http://www.w3.org/1999/xhtml/vocab">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <title>Map | WSPRnet</title>
+<link type="text/css" rel="stylesheet" href="http://wsprnet.org/drupal/sites/wsprnet.org/files/css/css_XCZ4_6xyH_Nbd1gjmdpt21Lq6-xmvES6WSpZBT8in6c.css" media="all" />
+
+<script type="text/javascript" src="http://wsprnet.org/drupal/misc/jquery.js?v=1.4.4"></script>
+<script type="text/javascript" src="http://wsprnet.org/drupal/misc/jquery.once.js?v=1.2"></script>
+<script type="text/javascript" src="http://d3js.org/d3.v3.min.js"></script>
+<body class="html page-wsprnet-map" >
+    <div id='map' style='text-align: center; color: #000000; margin-left: auto; margin-right: auto; width: 100%; height: 700px; border: 3px ridge;'>
+<noscript>Map would be here if you had javascript enabled</noscript>
+
+<script src="http://maps.googleapis.com/maps/api/js?key=AIzaSyAfw5EPTJinecSLVCY_gSUwom2_J1d2y0E&sensor=false" type="text/javascript"></script>
+<script src="http://wsprnet.org/markerwithlabel.js" type="text/javascript"></script>
+<script src="daynightoverlay.js" type="text/javascript"></script>
+<script type="text/javascript">
+function pathLine(m, p1, p2, c) {
+  line = new google.maps.Polyline({path: [p1, p2], geodesic: true, strokeWeight: 2, strokeColor: c});
+  line.setMap(m);
+  return line;
+}
+
+function createMarker(m, p, call, label, info) {
+  var infowindow = new google.maps.InfoWindow({content: info});
+  var offset = Math.round(call.length * 3.6);
+  var marker = new MarkerWithLabel({map: m, position: p, labelContent: call, labelAnchor: new google.maps.Point(offset, 36), labelClass: label});
+  google.maps.event.addListener(marker, "click", function() {
+    infowindow.open(m, marker);}
+  );
+  return marker;
+}
+
+//Draw a marker and path
+function onepos(map, startpos, endLat, endLong, endname, endtxt, colour) {
+  var endpos = new google.maps.LatLng(endLat, endLong);
+  var marker = createMarker(map, endpos, endname, 'labeltx', '<b>'+endname+'</b><br>'+endtxt);
+  var line = pathLine(map, endpos, startpos, colour);
+  return [marker,line,new Date(daytime.toISOString())];
+}
+
+function wsprmap() {
+  var mapOptions = { zoom: 2, center: new google.maps.LatLng(20, 20) };
+  map = new google.maps.Map(document.getElementById('map'), mapOptions);
+  var polyopt = {geodesic:true};
+
+  //We need a start position, you could probably pull this from the files
+  start = new google.maps.LatLng(-26.104166666667,28.041666666667);
+  createMarker(map, start, 'ZS6HAK', 'labeltx', '<b>ZS6HAK</b>');
+
+  //Read in the source info
+  d3.tsv("http://127.0.0.1/spots.tsv", function(data) { spots = data; });
+  d3.tsv("http://127.0.0.1/seens.tsv", function(data) { seens = data; });
+  daytime = new Date();
+  daynight = new DayNightOverlay(map, daytime);
+}
+
+var map, start, daynight, daytime;
+google.maps.event.addDomListener(window, 'load', wsprmap);
+var spots = [], seens = [], markers = [];
+
+var lastposspot = -1, lastposseen = -1, markerpos = 0;
+var spottime, seentime;
+window.setInterval(function() {
+  //Wait for the objects to be populated by d3
+  if ("undefined" != typeof spots[0] && spots != [] && lastposspot == -1) {
+    spottime = new Date(spots[1].Timestamp);
+    lastposspot = 0;
+  }
+  if ("undefined" != typeof seens[0] && seens != [] && lastposseen == -1) {
+    seentime = new Date(seens[1].Timestamp);
+    lastposseen = 0;
+  }
+
+  //Check which has the earliest reference and start our date and time there
+  if (lastposseen == 0 && lastposspot == 0) {
+    if (seentime.getTime() > spottime.getTime()) {
+      daytime = new Date(spots[1].Timestamp);
+    } else {
+      daytime = new Date(seens[1].Timestamp);
+    }
+    lastposseen = 1;
+    lastposspot = 1;
+    daynight.setDate(daytime);
+  }
+ 
+  //Make sure we're done with setup 
+  if (lastposspot > 0 && lastposseen > 0 && "undefined" != typeof daytime) {
+
+    //Add markers if it's their time
+    while (spottime.getTime() == daytime.getTime()) {
+      markers.push(onepos(map,start,spots[lastposspot].RLat,spots[lastposspot].RLong,spots[lastposspot].Reporter,spots[lastposspot].km+' '+spots[lastposspot].az, 'indigo'));
+      lastposspot++;
+      spottime = new Date(spots[lastposspot].Timestamp);
+    }
+
+    while (seentime.getTime() == daytime.getTime()) {
+      markers.push(onepos(map,start,seens[lastposseen].GLat,seens[lastposseen].GLong,seens[lastposseen].Call,seens[lastposseen].km+' '+seens[lastposseen].az, 'orange'));
+      lastposseen++;
+      seentime = new Date(seens[lastposseen].Timestamp);
+    }
+
+    //Increment the minutes
+    min = daytime.getMinutes()+1;
+    daytime.setMinutes(min);
+    daynight.setDate(daytime);
+  }
+
+  //Expire old markers so we don't clutter the map
+  if (markers.length > 0) {
+    for (var i=0; i<markers.length; i++) { 
+      markdate = new Date(markers[i][2]);
+      diff = daytime.getTime() - markdate.getTime();
+      if (diff == 3600000) { //one hour in ms
+        markers[i][0].setMap(null);
+        markers[i][1].setMap(null);
+      }
+    }
+  }
+}, 20); //Change this number to make the time go faster or slower
+
+</script></div>
+  </body>
+</html>
